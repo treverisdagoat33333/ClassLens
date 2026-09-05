@@ -1,37 +1,27 @@
-const express = require('express');
 const jwt = require('jsonwebtoken');
-const db = require('../db');
 
-const router = express.Router();
-
-// Admin Authentication Endpoint
-router.post('/login', (req, res) => {
-  const { email, password } = req.body || {};
-  
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
+function requireAdmin(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Missing admin token' });
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
+    req.admin = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
+}
 
-  // Look up the admin user inside the database
-  const admin = db.prepare('SELECT * FROM admins WHERE email = ?').get(email);
-  if (!admin) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+function requireDeviceKey(req, res, next) {
+  const key = req.headers['x-enrollment-key'];
+  if (!key || key !== process.env.ENROLLMENT_KEY) {
+    return res.status(401).json({ error: 'Invalid enrollment key' });
   }
+  next();
+}
 
-  // Simple password check for prototype development. 
-  // For production rollouts, implement bcrypt.compareSync(password, admin.password)
-  if (password !== admin.password && admin.password !== 'admin_default_password') {
-    return res.status(401).json({ error: 'Invalid email or password' });
-  }
-
-  // Sign and return the secure session token
-  const token = jwt.sign(
-    { id: admin.id, email: admin.email, role: 'admin' }, 
-    process.env.JWT_SECRET || 'fallback_secret_key', 
-    { expiresIn: '1d' }
-  );
-
-  res.json({ ok: true, token, email: admin.email });
-});
-
-module.exports = router;
+module.exports = { 
+  requireAdmin, 
+  requireDeviceKey 
+};
