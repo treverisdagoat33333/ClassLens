@@ -6,8 +6,7 @@ import DeviceList from './pages/DeviceList.jsx';
 import DeviceDetail from './pages/DeviceDetail.jsx';
 import Blocklist from './pages/Blocklist.jsx';
 import Alerts from './pages/Alerts.jsx';
-// FIXED: Path now routes cleanly into the components subfolder
-import Shell from './components/Shell.jsx'; 
+import Shell from './components/Shell.jsx';
 
 function RequireAuth({ children }) {
   if (!getToken()) return <Navigate to="/login" replace />;
