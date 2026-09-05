@@ -1,1 +1,6 @@
-[porn]
+[
+  {
+    "pattern": "example.com",
+    "reason": "because i want to"
+  }
+]
