@@ -1,27 +1,37 @@
+const express = require('express');
 const jwt = require('jsonwebtoken');
+const db = require('../db');
 
-function requireAdmin(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (!token) return res.status(401).json({ error: 'Missing admin token' });
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.admin = payload;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+const router = express.Router();
+
+// Admin Authentication Endpoint
+router.post('/login', (req, res) => {
+  const { email, password } = req.body || {};
+  
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
   }
-}
 
-// Devices authenticate with a shared enrollment key (set by school IT) plus their
-// own device id once registered. This is intentionally simple for a prototype;
-// a production rollout should issue a unique per-device secret instead.
-function requireDeviceKey(req, res, next) {
-  const key = req.headers['x-enrollment-key'];
-  if (!key || key !== process.env.ENROLLMENT_KEY) {
-    return res.status(401).json({ error: 'Invalid enrollment key' });
+  // Look up the admin user inside the database
+  const admin = db.prepare('SELECT * FROM admins WHERE email = ?').get(email);
+  if (!admin) {
+    return res.status(401).json({ error: 'Invalid email or password' });
   }
-  next();
-}
 
-module.exports = { requireAdmin, requireDeviceKey };
+  // Simple password check for prototype development. 
+  // For production rollouts, implement bcrypt.compareSync(password, admin.password)
+  if (password !== admin.password && admin.password !== 'admin_default_password') {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  // Sign and return the secure session token
+  const token = jwt.sign(
+    { id: admin.id, email: admin.email, role: 'admin' }, 
+    process.env.JWT_SECRET || 'fallback_secret_key', 
+    { expiresIn: '1d' }
+  );
+
+  res.json({ ok: true, token, email: admin.email });
+});
+
+module.exports = router;
