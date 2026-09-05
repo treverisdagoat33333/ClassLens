@@ -40,9 +40,15 @@ export const api = {
     request('/api/blocklist/admin', { method: 'POST', body: JSON.stringify({ pattern, reason }) }),
   removeBlocklistEntry: (id) => request(`/api/blocklist/admin/${id}`, { method: 'DELETE' }),
   screenshotUrl: (filename) => `${BASE_URL}/api/screenshots/file/${filename}`,
+  // NEW: Sends interactive signals straight down to client endpoints via HTTP
+  sendCommand: (deviceId, type, url = '') =>
+    request(`/api/devices/${deviceId}/command`, { method: 'POST', body: JSON.stringify({ type, url }) }),
 };
 
 export async function fetchImageBlob(filename) {
+  if (filename && filename.startsWith('data:image')) {
+    return filename;
+  }
   const token = getToken();
   const res = await fetch(`${BASE_URL}/api/screenshots/file/${filename}`, {
     headers: { Authorization: `Bearer ${token}` },
