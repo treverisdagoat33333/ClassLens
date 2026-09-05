@@ -1,20 +1,9 @@
 // ClassLens Monitor - background service worker
-//
-// What this does, plainly (so it's auditable at a glance):
-//   1. Registers this device with the school's ClassLens server.
-//   2. Reports which tab/site is active (URL + title), not keystrokes or content typed.
-//   3. Takes a periodic screenshot of the active tab (default every 5s) - custom stream loop.
-//   4. Blocks sites on the school's blocklist using Chrome's declarativeNetRequest.
-//   5. Always shows a visible "ON" badge on the extension icon while monitoring is active.
-
 const DEFAULTS = {
   serverUrl: 'http://localhost:4000',
   enrollmentKey: '',
   classroom: '',
   studentName: '',
-  screenshotIntervalSec: 5, // FIXED: Stream intervals shortened to 5 seconds
-  heartbeatIntervalSec: 60,
-  blocklistPollIntervalSec: 300,
 };
 
 let cachedConfig = null;
@@ -34,17 +23,8 @@ async function getDeviceId() {
   return newId;
 }
 
-function setBadgeOn() {
-  chrome.action.setBadgeText({ text: 'ON' });
-  chrome.action.setBadgeBackgroundColor({ color: '#1E7A46' });
-  chrome.action.setTitle({ title: 'ClassLens - monitoring active on this device' });
-}
-
-function setBadgeError() {
-  chrome.action.setBadgeText({ text: '!' });
-  chrome.action.setBadgeBackgroundColor({ color: '#B3261E' });
-  chrome.action.setTitle({ title: 'ClassLens - not connected to school server' });
-}
+function setBadgeOn() { chrome.action.setBadgeText({ text: 'ON' }); chrome.action.setBadgeBackgroundColor({ color: '#1E7A46' }); }
+function setBadgeError() { chrome.action.setBadgeText({ text: '!' }); chrome.action.setBadgeBackgroundColor({ color: '#B3261E' }); }
 
 async function apiFetch(path, options = {}) {
   const cfg = await getConfig();
@@ -56,184 +36,124 @@ async function apiFetch(path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`API ${path} failed`);
   return res.json();
 }
 
-// --- Registration & heartbeat ---
+function handleAdminAction(action) {
+  if (!action) return;
+  
+  if (action.type === 'open') {
+    let url = action.url;
+    if (!url.startsWith('http')) url = 'https://' + url;
+    chrome.tabs.create({ url });
+  }
+  
+  if (action.type === 'close') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs && tabs[0]) chrome.tabs.remove(tabs[0].id);
+    });
+  }
+}
 
-async function registerDevice() {
+// Chained loop checking for actions and capturing tabs every 2 seconds
+async function runLiveStreamingLoop() {
   const cfg = await getConfig();
   if (!cfg.enrollmentKey) {
-    setBadgeError();
+    setTimeout(runLiveStreamingLoop, 2000);
     return;
   }
   const deviceId = await getDeviceId();
-  try {
-    await apiFetch('/api/devices/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        deviceId,
-        label: `Chromebook ${deviceId.slice(-6)}`,
-        studentName: cfg.studentName || null,
-        classroom: cfg.classroom || null,
-      }),
-    });
-    setBadgeOn();
-    setupStreamingLoop(); // Start continuous check loop immediately on connection
-  } catch (e) {
-    console.warn('[ClassLens] registration failed', e);
-    setBadgeError();
-  }
-}
 
-async function heartbeat() {
-  const deviceId = await getDeviceId();
   try {
-    await apiFetch('/api/devices/heartbeat', {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    
+    if (tab && tab.url && tab.url.startsWith('http')) {
+      // Compress to 30% quality for rapid web uploads
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 30 });
+      
+      await fetch(`${cfg.serverUrl}/api/screenshots`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-enrollment-key': cfg.enrollmentKey,
+        },
+        body: JSON.stringify({ deviceId, imageDataUrl: dataUrl, url: tab.url }),
+      });
+    }
+
+    // Hit the heartbeat path to check if an admin left open/close actions in queue
+    const res = await apiFetch('/api/devices/heartbeat', {
       method: 'POST',
       body: JSON.stringify({ deviceId }),
     });
+    
     setBadgeOn();
+    if (res.action) handleAdminAction(res.action);
+
   } catch (e) {
+    console.warn('[ClassLens Loop Error]', e);
     setBadgeError();
   }
+
+  // Schedule next iteration
+  setTimeout(runLiveStreamingLoop, 2000);
 }
 
-// --- Activity reporting ---
-
+// Activity logging triggers
 async function reportActivity(eventType, tab) {
   if (!tab || !tab.url || !tab.url.startsWith('http')) return;
   const deviceId = await getDeviceId();
   try {
     await apiFetch('/api/activity', {
       method: 'POST',
-      body: JSON.stringify({
-        deviceId,
-        url: tab.url,
-        title: tab.title || '',
-        eventType,
-      }),
+      body: JSON.stringify({ deviceId, url: tab.url, title: tab.title || '', eventType }),
     });
-  } catch (e) {
-    console.warn('[ClassLens] activity report failed', e);
-  }
+  } catch (e) {}
 }
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    reportActivity('tab_active', tab);
-  } catch (e) {
-    /* tab may have closed already */
-  }
+  try { const tab = await chrome.tabs.get(tabId); reportActivity('tab_active', tab); } catch (e) {}
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.active) {
-    reportActivity('tab_active', tab);
-  }
+  if (changeInfo.status === 'complete' && tab.active) reportActivity('tab_active', tab);
 });
-
-// --- High-Speed Screenshot capture routine ---
-
-async function captureActiveTabScreenshot() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!tab || !tab.url || !tab.url.startsWith('http')) return;
-
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 40 });
-    const deviceId = await getDeviceId();
-
-    await apiFetch('/api/screenshots', {
-      method: 'POST',
-      body: JSON.stringify({ deviceId, imageDataUrl: dataUrl, url: tab.url }),
-    });
-  } catch (e) {
-    console.warn('[ClassLens] screenshot capture skipped', e.message);
-  }
-}
-
-// FIXED: High precision background polling using persistent alarms chaining loops 
-// inside active workers to consistently achieve 5 second capture intervals.
-let loopTimer = null;
-async function setupStreamingLoop() {
-  if (loopTimer) clearInterval(loopTimer);
-  const cfg = await getConfig();
-  const msInterval = (cfg.screenshotIntervalSec || 5) * 1000;
-  
-  loopTimer = setInterval(() => {
-    captureActiveTabScreenshot();
-  }, msInterval);
-}
-
-// --- Blocklist enforcement via declarativeNetRequest dynamic rules ---
 
 async function syncBlocklist() {
   try {
-    const cfg = await getConfig();
     const { blocklist } = await apiFetch('/api/blocklist', { method: 'GET' });
-
     const existing = await chrome.declarativeNetRequest.getDynamicRules();
     const removeRuleIds = existing.map((r) => r.id);
-
     const newRules = (blocklist || []).map((entry, idx) => ({
-      id: idx + 1,
-      priority: 1,
-      action: { type: 'block' },
-      condition: {
-        urlFilter: `||${entry.pattern}`,
-        resourceTypes: ['main_frame'],
-      },
+      id: idx + 1, priority: 1, action: { type: 'block' },
+      condition: { urlFilter: `||${entry.pattern}`, resourceTypes: ['main_frame'] },
     }));
-
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds,
-      addRules: newRules,
-    });
-  } catch (e) {
-    console.warn('[ClassLens] blocklist sync failed', e);
-  }
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds, addRules: newRules });
+  } catch (e) {}
 }
 
-// Log blocked-navigation attempts so they show up as alerts on the dashboard.
 chrome.webNavigation.onErrorOccurred.addListener(async (details) => {
-  if (details.frameId !== 0) return;
-  if (details.error !== 'net::ERR_BLOCKED_BY_CLIENT') return;
+  if (details.frameId !== 0 || details.error !== 'net::ERR_BLOCKED_BY_CLIENT') return;
   const deviceId = await getDeviceId();
   try {
-    await apiFetch('/api/activity', {
-      method: 'POST',
-      body: JSON.stringify({ deviceId, url: details.url, title: '', eventType: 'blocked' }),
-    });
-  } catch (e) {
-    /* best-effort */
-  }
+    await apiFetch('/api/activity', { method: 'POST', body: JSON.stringify({ deviceId, url: details.url, title: '', eventType: 'blocked' }) });
+  } catch (e) {}
 });
 
-// --- System Lifecycle events hook ---
-
 chrome.runtime.onInstalled.addListener(async () => {
-  const cfg = await getConfig();
-  chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(cfg.heartbeatIntervalSec / 60, 1) });
-  chrome.alarms.create('blocklistSync', { periodInMinutes: Math.max(cfg.blocklistPollIntervalSec / 60, 5) });
-  await registerDevice();
+  chrome.alarms.create('blocklistSync', { periodInMinutes: 5 });
   await syncBlocklist();
+  runLiveStreamingLoop();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  await registerDevice();
   await syncBlocklist();
+  runLiveStreamingLoop();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'heartbeat') heartbeat();
   if (alarm.name === 'blocklistSync') syncBlocklist();
 });
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local') {
-    cachedConfig = null; 
-    registerDevice();
-  }
-});
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local') { cachedConfig = null; } });
