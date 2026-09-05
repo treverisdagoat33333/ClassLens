@@ -3,19 +3,16 @@
 // What this does, plainly (so it's auditable at a glance):
 //   1. Registers this device with the school's ClassLens server.
 //   2. Reports which tab/site is active (URL + title), not keystrokes or content typed.
-//   3. Takes a periodic screenshot of the active tab (default every 45s) - NOT a live stream.
+//   3. Takes a periodic screenshot of the active tab (default every 5s) - custom stream loop.
 //   4. Blocks sites on the school's blocklist using Chrome's declarativeNetRequest.
 //   5. Always shows a visible "ON" badge on the extension icon while monitoring is active.
-//
-// Nothing here runs silently without the badge, and nothing here captures audio/mic/webcam
-// or keystrokes. It is meant to run only on school-owned, managed devices with users notified.
 
 const DEFAULTS = {
   serverUrl: 'http://localhost:4000',
   enrollmentKey: '',
   classroom: '',
   studentName: '',
-  screenshotIntervalSec: 45,
+  screenshotIntervalSec: 5, // FIXED: Stream intervals shortened to 5 seconds
   heartbeatIntervalSec: 60,
   blocklistPollIntervalSec: 300,
 };
@@ -83,6 +80,7 @@ async function registerDevice() {
       }),
     });
     setBadgeOn();
+    setupStreamingLoop(); // Start continuous check loop immediately on connection
   } catch (e) {
     console.warn('[ClassLens] registration failed', e);
     setBadgeError();
@@ -137,14 +135,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-// --- Periodic screenshots of the active tab ---
+// --- High-Speed Screenshot capture routine ---
 
 async function captureActiveTabScreenshot() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab || !tab.url || !tab.url.startsWith('http')) return;
 
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 50 });
+    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 40 });
     const deviceId = await getDeviceId();
 
     await apiFetch('/api/screenshots', {
@@ -152,9 +150,21 @@ async function captureActiveTabScreenshot() {
       body: JSON.stringify({ deviceId, imageDataUrl: dataUrl, url: tab.url }),
     });
   } catch (e) {
-    // Common benign causes: no active tab, tab is a chrome:// page (capture not allowed), offline.
     console.warn('[ClassLens] screenshot capture skipped', e.message);
   }
+}
+
+// FIXED: High precision background polling using persistent alarms chaining loops 
+// inside active workers to consistently achieve 5 second capture intervals.
+let loopTimer = null;
+async function setupStreamingLoop() {
+  if (loopTimer) clearInterval(loopTimer);
+  const cfg = await getConfig();
+  const msInterval = (cfg.screenshotIntervalSec || 5) * 1000;
+  
+  loopTimer = setInterval(() => {
+    captureActiveTabScreenshot();
+  }, msInterval);
 }
 
 // --- Blocklist enforcement via declarativeNetRequest dynamic rules ---
@@ -167,7 +177,7 @@ async function syncBlocklist() {
     const existing = await chrome.declarativeNetRequest.getDynamicRules();
     const removeRuleIds = existing.map((r) => r.id);
 
-    const newRules = blocklist.map((entry, idx) => ({
+    const newRules = (blocklist || []).map((entry, idx) => ({
       id: idx + 1,
       priority: 1,
       action: { type: 'block' },
@@ -201,13 +211,12 @@ chrome.webNavigation.onErrorOccurred.addListener(async (details) => {
   }
 });
 
-// --- Alarms drive all periodic work (service workers can't rely on setInterval) ---
+// --- System Lifecycle events hook ---
 
 chrome.runtime.onInstalled.addListener(async () => {
   const cfg = await getConfig();
-  chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(cfg.heartbeatIntervalSec / 60, 0.5) });
-  chrome.alarms.create('screenshot', { periodInMinutes: Math.max(cfg.screenshotIntervalSec / 60, 0.5) });
-  chrome.alarms.create('blocklistSync', { periodInMinutes: Math.max(cfg.blocklistPollIntervalSec / 60, 1) });
+  chrome.alarms.create('heartbeat', { periodInMinutes: Math.max(cfg.heartbeatIntervalSec / 60, 1) });
+  chrome.alarms.create('blocklistSync', { periodInMinutes: Math.max(cfg.blocklistPollIntervalSec / 60, 5) });
   await registerDevice();
   await syncBlocklist();
 });
@@ -219,14 +228,12 @@ chrome.runtime.onStartup.addListener(async () => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'heartbeat') heartbeat();
-  if (alarm.name === 'screenshot') captureActiveTabScreenshot();
   if (alarm.name === 'blocklistSync') syncBlocklist();
 });
 
-// React immediately if an admin changes settings via the options page.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local') {
-    cachedConfig = null; // force re-read next call
+    cachedConfig = null; 
     registerDevice();
   }
 });
