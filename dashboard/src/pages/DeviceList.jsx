@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from './api.js';
+import { api } from '../api.js';
 
 function timeAgo(ts) {
   if (!ts) return 'never';
@@ -30,7 +30,7 @@ export default function DeviceList() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 2000); // 2s refresh interval
+    const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
   }, []);
 
