@@ -4,7 +4,6 @@ const { requireAdmin, requireDeviceKey } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Device reports a tab-focus / navigation / block event.
 router.post('/', requireDeviceKey, (req, res) => {
   const { deviceId, url, title, eventType } = req.body || {};
   if (!deviceId || !eventType) return res.status(400).json({ error: 'deviceId and eventType required' });
@@ -17,7 +16,6 @@ router.post('/', requireDeviceKey, (req, res) => {
   res.json({ ok: true });
 });
 
-// Admin: activity log for one device
 router.get('/:deviceId', requireAdmin, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
   const rows = db
@@ -26,7 +24,6 @@ router.get('/:deviceId', requireAdmin, (req, res) => {
   res.json({ activity: rows });
 });
 
-// Admin: recent blocked-site alerts across all devices
 router.get('/', requireAdmin, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
   const rows = db
