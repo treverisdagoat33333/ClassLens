@@ -10,9 +10,6 @@ const router = express.Router();
 const SCREENSHOT_DIR = path.resolve(process.env.SCREENSHOT_DIR || './data/screenshots');
 if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
-// Device uploads a screenshot as a base64 JPEG/PNG data URL.
-// Kept as periodic snapshots (not a live stream) to keep bandwidth/CPU low on
-// 8GB Chromebooks and to make it obvious in the code that this isn't screen mirroring.
 router.post('/', requireDeviceKey, express.json({ limit: '6mb' }), (req, res) => {
   const { deviceId, imageDataUrl, url } = req.body || {};
   if (!deviceId || !imageDataUrl) return res.status(400).json({ error: 'deviceId and imageDataUrl required' });
@@ -33,7 +30,6 @@ router.post('/', requireDeviceKey, express.json({ limit: '6mb' }), (req, res) =>
   res.json({ ok: true });
 });
 
-// Admin: list screenshot metadata for a device (most recent first)
 router.get('/:deviceId', requireAdmin, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const rows = db
@@ -42,7 +38,6 @@ router.get('/:deviceId', requireAdmin, (req, res) => {
   res.json({ screenshots: rows });
 });
 
-// Admin: fetch the actual image bytes for one screenshot (auth-gated, not public static).
 router.get('/file/:filename', requireAdmin, (req, res) => {
   const filename = req.params.filename;
   if (filename.includes('..') || filename.includes('/')) return res.status(400).end();
