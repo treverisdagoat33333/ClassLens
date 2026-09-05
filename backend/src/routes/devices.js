@@ -6,8 +6,6 @@ const router = express.Router();
 
 const OFFLINE_THRESHOLD_MS = Number(process.env.OFFLINE_THRESHOLD_MS || 90000);
 
-// --- Device-facing: register / heartbeat ---
-// Called by the extension on startup and periodically after.
 router.post('/register', requireDeviceKey, (req, res) => {
   const { deviceId, label, studentName, classroom } = req.body || {};
   if (!deviceId) return res.status(400).json({ error: 'deviceId required' });
@@ -29,7 +27,6 @@ router.post('/register', requireDeviceKey, (req, res) => {
   res.json({ ok: true });
 });
 
-// Lightweight heartbeat so "last seen" stays fresh without a full re-register.
 router.post('/heartbeat', requireDeviceKey, (req, res) => {
   const { deviceId } = req.body || {};
   if (!deviceId) return res.status(400).json({ error: 'deviceId required' });
@@ -37,7 +34,6 @@ router.post('/heartbeat', requireDeviceKey, (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Admin-facing: dashboard views ---
 router.get('/', requireAdmin, (req, res) => {
   const rows = db.prepare('SELECT * FROM devices ORDER BY last_seen DESC').all();
   const now = Date.now();
