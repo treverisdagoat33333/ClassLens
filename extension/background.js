@@ -1,4 +1,4 @@
-// ClassLens Monitor - background service worker
+// ClassLens Monitor - Background Service Worker
 const DEFAULTS = {
   serverUrl: 'http://localhost:4000',
   enrollmentKey: '',
@@ -23,8 +23,15 @@ async function getDeviceId() {
   return newId;
 }
 
-function setBadgeOn() { chrome.action.setBadgeText({ text: 'ON' }); chrome.action.setBadgeBackgroundColor({ color: '#1E7A46' }); }
-function setBadgeError() { chrome.action.setBadgeText({ text: '!' }); chrome.action.setBadgeBackgroundColor({ color: '#B3261E' }); }
+function setBadgeOn() { 
+  chrome.action.setBadgeText({ text: 'ON' }); 
+  chrome.action.setBadgeBackgroundColor({ color: '#1E7A46' }); 
+}
+
+function setBadgeError() { 
+  chrome.action.setBadgeText({ text: '!' }); 
+  chrome.action.setBadgeBackgroundColor({ color: '#B3261E' }); 
+}
 
 async function apiFetch(path, options = {}) {
   const cfg = await getConfig();
@@ -43,20 +50,24 @@ async function apiFetch(path, options = {}) {
 function handleAdminAction(action) {
   if (!action) return;
   
+  // Handle remote open tab command
   if (action.type === 'open') {
     let url = action.url;
     if (!url.startsWith('http')) url = 'https://' + url;
     chrome.tabs.create({ url });
   }
   
+  // Handle remote close tab command
   if (action.type === 'close') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs && tabs[0]) chrome.tabs.remove(tabs[0].id);
+      if (tabs && tabs[0] && tabs[0].id) {
+        chrome.tabs.remove(tabs[0].id);
+      }
     });
   }
 }
 
-// Chained loop checking for actions and capturing tabs every 2 seconds
+// Continuous fast loop running every 2 seconds for high-speed streaming and action checking
 async function runLiveStreamingLoop() {
   const cfg = await getConfig();
   if (!cfg.enrollmentKey) {
@@ -69,7 +80,7 @@ async function runLiveStreamingLoop() {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     
     if (tab && tab.url && tab.url.startsWith('http')) {
-      // Compress to 30% quality for rapid web uploads
+      // Capture at compressed 30% quality for lightning fast 2s intervals without breaking disk spaces
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 30 });
       
       await fetch(`${cfg.serverUrl}/api/screenshots`, {
@@ -82,7 +93,7 @@ async function runLiveStreamingLoop() {
       });
     }
 
-    // Hit the heartbeat path to check if an admin left open/close actions in queue
+    // Hit the heartbeat path to instantly pull and execute queued teacher actions
     const res = await apiFetch('/api/devices/heartbeat', {
       method: 'POST',
       body: JSON.stringify({ deviceId }),
@@ -96,11 +107,11 @@ async function runLiveStreamingLoop() {
     setBadgeError();
   }
 
-  // Schedule next iteration
+  // Chain next delay execution cycle
   setTimeout(runLiveStreamingLoop, 2000);
 }
 
-// Activity logging triggers
+// Activity reporting triggers
 async function reportActivity(eventType, tab) {
   if (!tab || !tab.url || !tab.url.startsWith('http')) return;
   const deviceId = await getDeviceId();
