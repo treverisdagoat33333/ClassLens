@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "ClassLens Monitor",
+  "version": "1.0.0",
+  "description": "School classroom monitoring extension for managed Chromebooks. Shows a visible badge whenever monitoring is active.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "ClassLens - monitoring active",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage",
+    "alarms",
+    "webNavigation",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "blocklist_rules",
+        "enabled": true,
+        "path": "blocklist_rules.json"
+      }
+    ]
+  },
+  "minimum_chrome_version": "114"
+}
