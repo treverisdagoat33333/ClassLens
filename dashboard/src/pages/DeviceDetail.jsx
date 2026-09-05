@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { api, fetchImageBlob } from '../api';
+import { api, fetchImageBlob } from './api.js';
 
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -13,7 +13,7 @@ function ScreenshotThumb({ shot }) {
     let revoke;
     fetchImageBlob(shot.filename).then((url) => {
       setSrc(url);
-      revoke = url;
+      if (url && url.startsWith('blob:')) revoke = url;
     });
     return () => {
       if (revoke) URL.revokeObjectURL(revoke);
@@ -29,7 +29,7 @@ function ScreenshotThumb({ shot }) {
           <div className="w-full h-full animate-pulse bg-ink/10" />
         )}
       </div>
-      <p className="text-[11px] font-mono text-ink/45 mt-1 truncate">{formatTime(shot.ts)} Â· {shot.url}</p>
+      <p className="text-[11px] font-mono text-ink/45 mt-1 truncate">{formatTime(shot.ts)} · {shot.url}</p>
     </a>
   );
 }
@@ -41,6 +41,7 @@ export default function DeviceDetail() {
   const [screenshots, setScreenshots] = useState([]);
   const [tab, setTab] = useState('screens');
   const [error, setError] = useState('');
+  const [urlInput, setUrlInput] = useState('');
 
   async function load() {
     try {
@@ -59,31 +60,81 @@ export default function DeviceDetail() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 15000);
+    const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  async function triggerClose() {
+    try {
+      await api.sendCommand(id, 'close');
+      alert('Close tab execution requested.');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function triggerOpen(e) {
+    e.preventDefault();
+    if (!urlInput.trim()) return;
+    try {
+      await api.sendCommand(id, 'open', urlInput.trim());
+      setUrlInput('');
+      alert('Open tab execution requested.');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   if (error) return <div className="p-8 text-clay text-sm">{error}</div>;
-  if (!device) return <div className="p-8 text-ink/50 text-sm">Loadingâ€¦</div>;
+  if (!device) return <div className="p-8 text-ink/50 text-sm">Loading…</div>;
 
   return (
     <div className="px-8 py-7 max-w-5xl">
       <Link to="/" className="text-xs font-mono text-ink/45 hover:text-moss">&larr; Roster</Link>
 
-      <div className="flex items-center gap-3 mt-2 mb-1">
-        <h1 className="font-display text-2xl font-semibold">{device.student_name || device.label}</h1>
-        <span
-          className={`text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded ${
-            device.online ? 'bg-moss/10 text-moss' : 'bg-ink/5 text-ink/40'
-          }`}
-        >
-          {device.online ? 'online' : 'offline'}
-        </span>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-2 mb-4 bg-white p-4 border border-line rounded-lg">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="font-display text-2xl font-semibold">{device.student_name || device.label}</h1>
+            <span
+              className={`text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                device.online ? 'bg-moss/10 text-moss' : 'bg-ink/5 text-ink/40'
+              }`}
+            >
+              {device.online ? 'online' : 'offline'}
+            </span>
+          </div>
+          <p className="text-xs text-ink/50 mt-1 font-mono">
+            {device.id} · {device.classroom || 'no classroom'}
+          </p>
+        </div>
+
+        {device.online && (
+          <div className="flex flex-wrap items-center gap-3 bg-paper p-2 rounded-md border border-line">
+            <button
+              onClick={triggerClose}
+              className="px-3 py-1.5 bg-clay text-white rounded text-xs font-medium hover:bg-clay/90 transition-colors focus-ring"
+            >
+              ✕ Close Active Tab
+            </button>
+            <form onSubmit={triggerOpen} className="flex gap-1">
+              <input
+                type="text"
+                placeholder="Force launch URL..."
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                className="px-3 py-1.5 bg-white text-xs rounded border border-line focus-ring w-44"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-moss text-white rounded text-xs font-medium hover:bg-mossDark transition-colors"
+              >
+                Launch
+              </button>
+            </form>
+          </div>
+        )}
       </div>
-      <p className="text-sm text-ink/50 mb-6 font-mono">
-        {device.id} Â· {device.classroom || 'no classroom'}
-      </p>
 
       <div className="flex gap-1 mb-5 border-b border-line">
         {['screens', 'activity'].map((t) => (
@@ -104,7 +155,7 @@ export default function DeviceDetail() {
           {screenshots.length === 0 && (
             <p className="text-sm text-ink/40">No screenshots captured yet.</p>
           )}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {screenshots.map((s) => (
               <ScreenshotThumb key={s.id} shot={s} />
             ))}
