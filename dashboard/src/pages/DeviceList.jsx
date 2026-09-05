@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api } from './api.js';
 
 function timeAgo(ts) {
   if (!ts) return 'never';
@@ -15,6 +15,7 @@ export default function DeviceList() {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [urlInputs, setUrlInputs] = useState({});
 
   async function load() {
     try {
@@ -29,9 +30,34 @@ export default function DeviceList() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 15000);
+    const interval = setInterval(load, 2000); // 2s refresh interval
     return () => clearInterval(interval);
   }, []);
+
+  async function handleCloseTab(e, id) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.sendCommand(id, 'close');
+      alert('Close active tab command queued.');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleOpenUrl(e, id) {
+    e.preventDefault();
+    e.stopPropagation();
+    const targetUrl = urlInputs[id] || '';
+    if (!targetUrl.trim()) return;
+    try {
+      await api.sendCommand(id, 'open', targetUrl.trim());
+      setUrlInputs(prev => ({ ...prev, [id]: '' }));
+      alert('Open tab command queued.');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
 
   const onlineCount = devices.filter((d) => d.online).length;
 
@@ -45,14 +71,13 @@ export default function DeviceList() {
       </div>
       <p className="text-sm text-ink/50 mb-6">Every managed Chromebook currently enrolled.</p>
 
-      {/* Roll-call strip: signature element, one dot per device like a physical attendance sheet */}
       {devices.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-8 p-4 bg-white border border-line rounded-lg">
           {devices.map((d) => (
             <Link
               key={d.id}
               to={`/devices/${d.id}`}
-              title={`${d.label} â€” ${d.online ? 'online' : timeAgo(d.last_seen)}`}
+              title={`${d.label} — ${d.online ? 'online' : timeAgo(d.last_seen)}`}
               className="flex flex-col items-center gap-1 w-14 group"
             >
               <span
@@ -68,38 +93,65 @@ export default function DeviceList() {
         </div>
       )}
 
-      {loading && <p className="text-ink/50 text-sm">Loading rosterâ€¦</p>}
+      {loading && <p className="text-ink/50 text-sm">Loading roster…</p>}
       {error && <p className="text-clay text-sm">{error}</p>}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {devices.map((d) => (
-          <Link
-            to={`/devices/${d.id}`}
+          <div
             key={d.id}
-            className="block bg-white border border-line rounded-lg p-4 hover:border-moss transition-colors focus-ring"
+            className="block bg-white border border-line rounded-lg p-4 hover:border-moss transition-colors"
           >
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-medium text-sm">{d.student_name || d.label}</span>
-              <span
-                className={`text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                  d.online ? 'bg-moss/10 text-moss' : 'bg-ink/5 text-ink/40'
-                }`}
-              >
-                {d.online ? 'online' : 'offline'}
-              </span>
-            </div>
-            <p className="text-xs text-ink/50 font-mono">{d.classroom || 'No classroom set'}</p>
-            <p className="text-xs text-ink/40 mt-2">Last seen {timeAgo(d.last_seen)}</p>
-          </Link>
+            <Link to={`/devices/${d.id}`} className="block">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium text-sm hover:text-moss transition-colors">{d.student_name || d.label}</span>
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                    d.online ? 'bg-moss/10 text-moss' : 'bg-ink/5 text-ink/40'
+                  }`}
+                >
+                  {d.online ? 'online' : 'offline'}
+                </span>
+              </div>
+              <p className="text-xs text-ink/50 font-mono mb-2">{d.classroom || 'No classroom set'}</p>
+            </Link>
+
+            {d.online && (
+              <div className="mt-3 pt-3 border-t border-line space-y-2">
+                <button
+                  onClick={(e) => handleCloseTab(e, d.id)}
+                  className="w-full text-center px-2 py-1 bg-clay/10 text-clay hover:bg-clay hover:text-white rounded text-[11px] font-medium transition-colors focus-ring"
+                >
+                  ✕ Close Active Tab
+                </button>
+                <form onSubmit={(e) => handleOpenUrl(e, d.id)} className="flex gap-1">
+                  <input
+                    type="text"
+                    placeholder="Push URL (e.g. google.com)"
+                    value={urlInputs[d.id] || ''}
+                    onChange={(e) => setUrlInputs(prev => ({ ...prev, [d.id]: e.target.value }))}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 px-2 py-1 bg-paper text-[11px] rounded border border-line focus-ring"
+                  />
+                  <button
+                    type="submit"
+                    onClick={(e) => e.stopPropagation()}
+                    className="px-2 py-1 bg-moss text-paper hover:bg-mossDark rounded text-[11px] font-medium transition-colors"
+                  >
+                    Open
+                  </button>
+                </form>
+              </div>
+            )}
+            
+            <p className="text-[10px] text-ink/40 mt-3 font-mono">Last seen {timeAgo(d.last_seen)}</p>
+          </div>
         ))}
       </div>
 
       {!loading && devices.length === 0 && (
         <div className="text-center py-16 border border-dashed border-line rounded-lg">
           <p className="text-ink/50 text-sm">No devices enrolled yet.</p>
-          <p className="text-ink/35 text-xs mt-1">
-            Devices appear here once the ClassLens extension registers with this server.
-          </p>
         </div>
       )}
     </div>
