@@ -1,10 +1,11 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const db = require('../db');
 
 const router = express.Router();
 
-// Admin Authentication Endpoint
+// Admin Authentication Endpoint (POST /api/auth/login)
 router.post('/login', (req, res) => {
   const { email, password } = req.body || {};
   
@@ -18,9 +19,9 @@ router.post('/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  // Simple password check for prototype development. 
-  // For production rollouts, implement bcrypt.compareSync(password, admin.password)
-  if (password !== admin.password && admin.password !== 'admin_default_password') {
+  // Verify the password using bcryptjs against the password_hash column
+  const isPasswordValid = bcrypt.compareSync(password, admin.password_hash);
+  if (!isPasswordValid) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
