@@ -4,13 +4,11 @@ const { requireAdmin, requireDeviceKey } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Device: fetch current blocklist (polled periodically + cached locally in the extension)
 router.get('/', requireDeviceKey, (req, res) => {
   const rows = db.prepare('SELECT pattern, reason FROM blocklist').all();
   res.json({ blocklist: rows });
 });
 
-// Admin: manage blocklist
 router.get('/admin', requireAdmin, (req, res) => {
   const rows = db.prepare('SELECT * FROM blocklist ORDER BY created_at DESC').all();
   res.json({ blocklist: rows });
