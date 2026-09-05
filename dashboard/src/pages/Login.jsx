@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { api } from '../api.js';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -52,7 +52,7 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full mb-5 px-3 py-2 rounded-md border border-line bg-white focus-ring text-sm"
-            placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+            placeholder="••••••••"
           />
 
           {error && <p className="text-clay text-sm mb-4">{error}</p>}
@@ -62,7 +62,7 @@ export default function Login() {
             disabled={loading}
             className="w-full bg-moss text-white font-medium py-2.5 rounded-md hover:bg-mossDark transition-colors disabled:opacity-60 focus-ring"
           >
-            {loading ? 'Signing inâ€¦' : 'Sign in'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
       </div>
