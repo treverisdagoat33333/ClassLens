@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from './api.js';
+import { api } from '../api.js';
 
 export default function Blocklist() {
   const [entries, setEntries] = useState([]);
