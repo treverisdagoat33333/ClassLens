@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api } from './api.js';
 
 export default function Blocklist() {
   const [entries, setEntries] = useState([]);
@@ -74,7 +74,7 @@ export default function Blocklist() {
           <div key={e.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
             <div>
               <span className="font-mono">{e.pattern}</span>
-              {e.reason && <span className="text-ink/40 ml-2 text-xs">â€” {e.reason}</span>}
+              {e.reason && <span className="text-ink/40 ml-2 text-xs">— {e.reason}</span>}
             </div>
             <button
               onClick={() => handleRemove(e.id)}
